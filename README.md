@@ -11,3 +11,5 @@ Boost 1.83 - [Download](https://archives.boost.io/release/1.83.0/binaries/boost_
 Latest version of CMake - [Download](https://cmake.org/download/)
 
 MySQL 8.0 - [Download](https://dev.mysql.com/downloads/windows/installer/8.0.html)
+
+3.4.3 Client - [Download](https://drive.google.com/file/d/1rbu3qp2AIk6j2VFmx2yAb8nTIANRZLqp/view)
