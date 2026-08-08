@@ -500,7 +500,7 @@ void LFGMgr::JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons)
             LfgType type = GetDungeonType(*it);
 
             // alistar: temp test dungeon finder
-            if (*it == 258)
+            if (std::find(std::begin(g_RandomDungeons), std::end(g_RandomDungeons), *it) != std::end(g_RandomDungeons))
             {
                 type = LFG_TYPE_RANDOM;
             }
@@ -694,7 +694,12 @@ void LFGMgr::LeaveLfg(ObjectGuid guid, bool disconnected)
             break;
         case LFG_STATE_ROLECHECK:
             if (!gguid.IsEmpty())
+            {
+                SetState(gguid, LFG_STATE_NONE);
+                SetState(guid, LFG_STATE_NONE);
+                SendLfgUpdateStatus(guid, LfgUpdateData(LFG_UPDATETYPE_REMOVED_FROM_QUEUE), false);
                 UpdateRoleCheck(gguid);                    // No player to update role = LFG_ROLECHECK_ABORTED
+            }
             break;
         case LFG_STATE_PROPOSAL:
         {
@@ -724,7 +729,10 @@ void LFGMgr::LeaveLfg(ObjectGuid guid, bool disconnected)
         case LFG_STATE_DUNGEON:
         case LFG_STATE_FINISHED_DUNGEON:
             if (guid != gguid && !disconnected) // Player
+            {
                 SetState(guid, LFG_STATE_NONE);
+                SendLfgUpdateStatus(guid, LfgUpdateData(LFG_UPDATETYPE_REMOVED_FROM_QUEUE), false);
+            }
             break;
     }
 }
@@ -760,9 +768,7 @@ void LFGMgr::UpdateRoleCheck(ObjectGuid gguid, ObjectGuid guid /* = ObjectGuid::
 
     if (!guid.IsEmpty())
     {
-        if (Player* player = ObjectAccessor::FindPlayer(guid))
-            roles = FilterClassRoles(player, roles);
-        else
+        if (!ObjectAccessor::FindPlayer(guid))
             return;
     }
 
@@ -807,19 +813,20 @@ void LFGMgr::UpdateRoleCheck(ObjectGuid gguid, ObjectGuid guid /* = ObjectGuid::
         SendLfgRoleCheckUpdate(pguid, roleCheck);
         switch (roleCheck.state)
         {
-            case LFG_ROLECHECK_INITIALITING:
-                continue;
-            case LFG_ROLECHECK_FINISHED:
-                SetState(pguid, LFG_STATE_QUEUED);
-                SetRoles(pguid, it->second);
-                SendLfgUpdateStatus(pguid, LfgUpdateData(LFG_UPDATETYPE_ADDED_TO_QUEUE, dungeons), true);
-                break;
-            default:
-                if (roleCheck.leader == pguid)
-                    SendLfgJoinResult(pguid, joinData);
-                SendLfgUpdateStatus(pguid, LfgUpdateData(LFG_UPDATETYPE_ROLECHECK_FAILED), true);
-                RestoreState(pguid, "Rolecheck Failed");
-                break;
+        case LFG_ROLECHECK_INITIALITING:
+            continue;
+        case LFG_ROLECHECK_FINISHED:
+            SetState(pguid, LFG_STATE_QUEUED);
+            SetRoles(pguid, it->second);
+            SendLfgUpdateStatus(pguid, LfgUpdateData(LFG_UPDATETYPE_ADDED_TO_QUEUE, dungeons), true);
+            break;
+        default:
+            SetState(pguid, LFG_STATE_NONE);
+            if (roleCheck.leader == pguid)
+                SendLfgJoinResult(pguid, joinData);
+            SendLfgUpdateStatus(pguid, LfgUpdateData(LFG_UPDATETYPE_ROLECHECK_FAILED), true);
+            RestoreState(pguid, "Rolecheck Failed");
+            break;
         }
     }
 
@@ -832,6 +839,7 @@ void LFGMgr::UpdateRoleCheck(ObjectGuid gguid, ObjectGuid guid /* = ObjectGuid::
     }
     else if (roleCheck.state != LFG_ROLECHECK_INITIALITING)
     {
+        SetState(gguid, LFG_STATE_NONE);
         RestoreState(gguid, "Rolecheck Failed");
         RoleChecksStore.erase(itRoleCheck);
     }
@@ -1617,8 +1625,12 @@ void LFGMgr::FinishDungeon(ObjectGuid gguid, const uint32 dungeonId, Map const* 
 */
 LfgDungeonSet const& LFGMgr::GetDungeonsByRandom(uint32 randomdungeon)
 {
-    LFGDungeonData const* dungeon = GetLFGDungeon(randomdungeon);
-    uint32 group = dungeon ? dungeon->group : 0;
+    uint32 group = 0;
+    if (LFGDungeonData const* dungeon = GetLFGDungeon(randomdungeon))
+        group = dungeon->group;
+    else if (LFGDungeonsEntry const* dungeonEntry = sLFGDungeonsStore.LookupEntry(randomdungeon))
+        group = dungeonEntry->GroupID;
+
     return CachedDungeonMapStore[group];
 }
 
@@ -1986,7 +1998,7 @@ void LFGMgr::RemoveGroupData(ObjectGuid guid)
         if (state != LFG_STATE_PROPOSAL)
         {
             SetState(playerGUID, LFG_STATE_NONE);
-            SendLfgUpdateStatus(playerGUID, LfgUpdateData(LFG_UPDATETYPE_REMOVED_FROM_QUEUE), true);
+            SendLfgUpdateStatus(playerGUID, LfgUpdateData(LFG_UPDATETYPE_REMOVED_FROM_QUEUE), false);
         }
     }
     GroupsStore.erase(it);
