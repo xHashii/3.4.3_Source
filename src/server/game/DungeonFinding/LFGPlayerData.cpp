@@ -35,16 +35,26 @@ void LfgPlayerData::SetState(LfgState state)
 {
     switch (state)
     {
-        case LFG_STATE_NONE:
-        case LFG_STATE_FINISHED_DUNGEON:
-            m_Roles = 0;
-            m_SelectedDungeons.clear();
-            [[fallthrough]];
-        case LFG_STATE_DUNGEON:
-            m_OldState = state;
-            [[fallthrough]];
-        default:
-            m_State = state;
+    case LFG_STATE_NONE:
+        m_Roles = 0;
+        m_SelectedDungeons.clear();
+        m_Ticket = WorldPackets::LFG::RideTicket(); // The crucial ticket wipe!
+        m_OldState = LFG_STATE_NONE; // Ensure no ghost state survives a hard reset
+        m_State = LFG_STATE_NONE;
+        break;
+    case LFG_STATE_FINISHED_DUNGEON:
+        m_Roles = 0;
+        m_SelectedDungeons.clear();
+        m_OldState = state;
+        m_State = state;
+        break;
+    case LFG_STATE_DUNGEON:
+        m_OldState = state;
+        m_State = state;
+        break;
+    default:
+        m_State = state;
+        break;
     }
 }
 
@@ -54,6 +64,7 @@ void LfgPlayerData::RestoreState()
     {
         m_SelectedDungeons.clear();
         m_Roles = 0;
+        m_Ticket = WorldPackets::LFG::RideTicket();
     }
     m_State = m_OldState;
 }

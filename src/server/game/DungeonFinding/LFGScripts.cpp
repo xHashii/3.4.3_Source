@@ -191,17 +191,39 @@ void LFGGroupScript::OnRemoveMember(Group* group, ObjectGuid guid, RemoveMethod 
             player->CastSpell(player, LFG_SPELL_DUNGEON_DESERTER, true);
         else if (method == GROUP_REMOVEMETHOD_KICK_LFG)
             player->RemoveAurasDueToSpell(LFG_SPELL_DUNGEON_COOLDOWN);
-        //else if (state == LFG_STATE_BOOT)
-            // Update internal kick cooldown of kicked
 
-        player->GetSession()->SendLfgUpdateStatus(LfgUpdateData(LFG_UPDATETYPE_LEADER_UNK1), true);
+        player->GetSession()->SendLfgUpdateStatus(LfgUpdateData(LFG_UPDATETYPE_REMOVED_FROM_QUEUE, LFG_STATE_NONE, {}), false);
         if (isLFG && player->GetMap()->IsDungeon())            // Teleport player out the dungeon
             sLFGMgr->TeleportPlayer(player, true);
     }
 
-    if (isLFG && state != LFG_STATE_FINISHED_DUNGEON) // Need more players to finish the dungeon
+    if (isLFG && players == 0)
+    {
+        // Truly empty - nobody left to search for a replacement on behalf of. Safe to tear
+        // down LFG tracking for this group entirely.
+        sLFGMgr->LeaveLfg(gguid);
+        sLFGMgr->RemoveGroupData(gguid);
+    }
+    else if (isLFG && state != LFG_STATE_FINISHED_DUNGEON) // Need more players to finish the dungeon
+    {
+        // NOTE: this used to be `players <= 1`, which tore down the group's LFG data (via
+        // RemoveGroupData) the moment it dropped to exactly ONE remaining player - while that
+        // player was still standing inside the instance. From that point IsLfgGroup(gguid)
+        // returns false (a freshly-erased LfgGroupData defaults to LFG_STATE_NONE), so the last
+        // player silently fell out of the LFG system entirely: no SendLfgOfferContinue, no way
+        // to search for replacements, nothing. Their client kept showing a party frame/LFG
+        // state because nothing ever told it the server had stopped tracking them. A solo
+        // remaining player should get exactly the same "find a replacement" treatment as a
+        // 4-man remnant does - real WotLK RDF supports backfilling a group all the way from a
+        // single remaining player.
         if (Player* leader = ObjectAccessor::FindConnectedPlayer(sLFGMgr->GetLeader(gguid)))
-            leader->GetSession()->SendLfgOfferContinue(sLFGMgr->GetDungeon(gguid, false));
+            // NOTE: SendLfgOfferContinue()/GetLFGDungeonEntry() expect the *plain* dungeon id
+            // (asId = true, the default) so they can look it up in LfgDungeonStore. Passing
+            // asId = false here fed the already-encoded Entry() value (id | (type << 24)) back
+            // into that lookup, which always failed and made the client send SMSG_LFG_OFFER_CONTINUE
+            // with Slot 0 - i.e. the "Find a Replacement" prompt silently never appeared.
+            leader->GetSession()->SendLfgOfferContinue(sLFGMgr->GetDungeon(gguid, true));
+    }
 }
 
 void LFGGroupScript::OnDisband(Group* group)
